@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Shooter with Bird Animation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        canvas {
+            width: 100%;
+            height: 100vh;
+            background: black;
+        }
+    </style>
+    <script>
+        window.onload = () => {
+            const canvas = document.querySelector("#myCanvas");
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            const ctx = canvas.getContext("2d");
+            const fps = 60;
+            let clickedPosition = { x: canvas.width / 2, y: canvas.height / 2 };
+            const bullets = [];
+            const allAssets = {}; // Stores all loaded assets
+            const birds = []; // Array to hold birds
+
+            function assetsLoader(type, src, key) {
+                return new Promise((resolve, reject) => {
+                    if (type === "image") {
+                        const image = new Image();
+                        image.src = src;
+                        image.onload = () => {
+                            allAssets[key] = image;
+                            resolve(image);
+                        };
+                        image.onerror = () => reject(new Error("Failed to load image: " + src));
+                    } else if (type === "audio") {
+                        const audio = new Audio();
+                        audio.src = src;
+                        audio.onloadeddata = () => {
+                            allAssets[key] = audio;
+                            resolve(audio);
+                        };
+                        audio.onerror = () => reject(new Error("Failed to load audio: " + src));
+                    }
+                });
+            }
+
+            function loadAllAssets(assetsToLoad) {
+                const promises = assetsToLoad.map(asset => assetsLoader(asset.type, asset.src, asset.key));
+                return Promise.all(promises).then(() => allAssets);
+            }
+
+            const assetsToLoad = [
+                { type: "image", key: "birdSprite", src: "b.png" }, 
+            ];
+
+            function resizeCanvas() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                clickedPosition = { x: canvas.width / 2, y: canvas.height / 2 };
+            }
+
+            window.addEventListener("resize", resizeCanvas);
+            resizeCanvas();
+
+            window.addEventListener("click", (e) => {
+                clickedPosition = { x: e.pageX, y: e.pageY };
+                fireBullet();
+            });
+
+            const spaceShip = {
+                width: 40,
+                height: 20,
+                x: function () { return canvas.width / 2 - this.width / 2; },
+                y: function () { return canvas.height - this.height; },
+                draw: function () {
+                    ctx.fillStyle = "red";
+                    ctx.fillRect(this.x(), this.y(), this.width, this.height);
+                }
+            };
+
+            const gun = {
+                width: 20,
+                height: 10,
+                x: function () { return spaceShip.x() + spaceShip.width / 2; },
+                y: function () { return spaceShip.y(); },
+                angle: function () {
+                    return Math.atan2(clickedPosition.y - this.y(), clickedPosition.x - this.x());
+                },
+                draw: function () {
+                    ctx.save();
+                    ctx.translate(this.x(), this.y());
+                    ctx.rotate(this.angle());
+                    ctx.fillStyle = "red";
+                    ctx.fillRect(-this.width / 2, -this.height + 5, this.width, this.height);
+                    ctx.restore();
+                }
+            };
+
+            class Bullet {
+                constructor(x, y, angle) {
+                    this.x = x;
+                    this.y = y;
+                    this.angle = angle;
+                    this.speed = 35;
+                    this.velocityX = this.speed * Math.cos(this.angle);
+                    this.velocityY = this.speed * Math.sin(this.angle);
+                    this.gravityY = 0.9;
+                }
+
+                update() {
+                    this.velocityY += this.gravityY;
+                    this.x += this.velocityX;
+                    this.y += this.velocityY;
+                }
+
+                draw() {
+                    ctx.fillStyle = "yellow";
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                isOffScreen() {
+                    return (
+                        this.x < 0 || this.x > canvas.width ||
+                        this.y < 0 || this.y > canvas.height
+                    );
+                }
+            }
+
+            class Bird {
+                constructor(x, y, frameWidth, frameHeight, frameCount, speed) {
+                    this.x = x;
+                    this.y = y;
+                    this.frameWidth = frameWidth;
+                    this.frameHeight = frameHeight;
+                    this.frameCount = frameCount;
+                    this.speed = speed;
+                    this.currentFrame = 0;
+                    this.tickCount = 0;
+                    this.ticksPerFrame = 3; 
+                    this.isHit = false; 
+                    this.gravity = 0.5; 
+                    this.velocityY = 0; 
+                }
+
+                update() {
+                    this.tickCount++;
+                    if (this.tickCount > this.ticksPerFrame) {
+                        this.tickCount = 0;
+                        this.currentFrame = (this.currentFrame + 1) % this.frameCount; 
+                    }
+
+                    if (this.isHit) {
+                        this.velocityY += this.gravity; 
+                        this.y += this.velocityY; 
+                    } else {
+                        this.x += this.speed; 
+                    }
+                }
+
+                draw() {
+                    const sprite = allAssets.birdSprite;
+                    ctx.drawImage(
+                        sprite,
+                        this.currentFrame * this.frameWidth,
+                        0,
+                        this.frameWidth,
+                        this.frameHeight,
+                        this.x,
+                        this.y,
+                        this.frameWidth,
+                        this.frameHeight
+                    );
+                }
+
+                isOffScreen() {
+                    return this.x + this.frameWidth < 0 || this.y > canvas.height; // Check if bird is off screen
+                }
+
+                checkCollision(bullet) {
+                    // Check for collision with bullet
+                    return (
+                        this.x < bullet.x + 5 &&
+                        this.x + this.frameWidth > bullet.x - 5 &&
+                        this.y < bullet.y + 5 &&
+                        this.y + this.frameHeight > bullet.y - 5
+                    );
+                }
+            }
+
+            function fireBullet() {
+                const angle = gun.angle();
+                const bulletX = gun.x();
+                const bulletY = gun.y();
+                bullets.push(new Bullet(bulletX, bulletY, angle));
+            }
+
+            function gameLoop() {
+                setTimeout(() => { requestAnimationFrame(gameLoop); }, 1000 / fps);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                spaceShip.draw();
+                gun.draw();
+
+                // Update and draw bullets
+                bullets.forEach((bullet, bulletIndex) => {
+                    bullet.update();
+                    bullet.draw();
+
+                    if (bullet.isOffScreen()) {
+                        bullets.splice(bulletIndex, 1);
+                    }
+
+                    // Check for collision with birds
+                    birds.forEach((bird, birdIndex) => {
+                        if (bird.checkCollision(bullet)) {
+                            bird.isHit = true; // Set bird as hit
+                            bullets.splice(bulletIndex, 1); // Remove bullet on hit
+                        }
+                    });
+                });
+-p98
+
+                // Update and draw birds
+                birds.forEach((bird, birdIndex) => {
+                    bird.update();
+                    bird.draw();
+
+                    if (bird.isOffScreen()) {
+                        birds.splice(birdIndex, 1); // Remove bird once off-screen
+                        birds.push(new Bird(-204, Math.random() * canvas.height / 2, 204, 204, 3, 4)); // Add new bird
+                    }
+                });
+
+                // Spawn new birds
+                // if (Math.random() < 0.01) {
+                // }
+            }
+            birds.push(new Bird(-204, Math.random() * canvas.height / 2, 204, 204, 3, 4)); // Add new bird at random
+
+            loadAllAssets(assetsToLoad)
+                .then(() => {
+                    console.log("Assets loaded successfully");
+                    gameLoop();
+                })
+                .catch(error => console.error("Error loading assets:", error));
+        };
+    </script>
+</head>
+<body>
+    <canvas id="myCanvas"></canvas>
+</body>
+</html>
